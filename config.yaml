@@ -1,0 +1,24 @@
+# Detection settings
+detector:
+  model: "yolo11s.pt"                   # better accuracy than 'n' model
+  conf_thresh: 0.25                     # more sensitive, detects distant cars
+  iou_thresh: 0.45                      # avoids merging nearby vehicles
+  allowed_classes: ["person", "car", "truck", "bus", "motorbike", "bicycle"]
+
+# Pose estimation
+pose:
+  enabled: true
+  model: "yolo11n-pose.pt"              # can switch to 's' pose model if GPU allows
+
+# Tracker settings
+tracker:
+  max_age: 50
+  n_init: 3
+  conf_thresh: 0.3                    # match detection threshold
+  iou_thresh: 0.45                      # added for consistent NMS
+
+# Speed estimator settings
+speed:
+  fps: 30
+  pixel_to_meter: 0.05
+  max_speed: 30
