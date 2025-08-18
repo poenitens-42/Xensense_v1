@@ -1,15 +1,53 @@
-# Python cache
+# Python
 __pycache__/
-*.pyc
+*.py[cod]
+*.pyo
+*.so
 
 # Virtual environments
 .venv/
+env/
+venv/
+ENV/
 
-# Data and outputs
-*.mp4
-*.avi
-outputs/
-data/
+# Jupyter Notebook checkpoints
+.ipynb_checkpoints/
 
-# Model weights
+# Logs
+*.log
+
+# IDE / Editor
+.vscode/
+.idea/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# ML / DL large files
+*.h5
+*.ckpt
+*.pth
 *.pt
+*.tflite
+*.onnx
+*.pb
+*.npz
+*.tar
+*.gz
+*.zip
+
+# Data
+data/
+datasets/
+*.csv
+*.tsv
+*.jsonl
+
+# Models
+models/
+outputs/
+checkpoints/
+
+# Cache
+.cache/
