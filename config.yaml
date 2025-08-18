@@ -1,24 +1,36 @@
 # Detection settings
 detector:
-  model: "yolo11s.pt"                   # better accuracy than 'n' model
-  conf_thresh: 0.25                     # more sensitive, detects distant cars
-  iou_thresh: 0.45                      # avoids merging nearby vehicles
+  model: "yolo11s.pt"
+  conf_thresh: 0.25
+  iou_thresh: 0.45
   allowed_classes: ["person", "car", "truck", "bus", "motorbike", "bicycle"]
+
+  # NEW FEATURES
+  enable_inpainting: false        # true to enable inpainting
+  inpainting_method: "lama"      # "telea" (fast) or "lama" (better quality) still not working :(
+
+  prompt_filter: null              # e.g., "car" or "red" (case-insensitive)
 
 # Pose estimation
 pose:
   enabled: true
-  model: "yolo11n-pose.pt"              # can switch to 's' pose model if GPU allows
+  model: "yolo11n-pose.pt"
 
 # Tracker settings
 tracker:
   max_age: 50
   n_init: 3
-  conf_thresh: 0.3                    # match detection threshold
-  iou_thresh: 0.45                      # added for consistent NMS
+  conf_thresh: 0.3
+  iou_thresh: 0.45
 
 # Speed estimator settings
 speed:
   fps: 30
   pixel_to_meter: 0.05
-  max_speed: 30
+  max_speed: 30  # place holder for genaral speed as camera is not moving (very hard to estimate with out dynamic camera)
+
+# Blackout recovery
+blackout:
+  memory_size: 5   # number of frames to remember for recovery
+
+

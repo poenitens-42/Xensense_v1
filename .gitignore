@@ -1,1 +1,15 @@
+# Python cache
+__pycache__/
+*.pyc
+
+# Virtual environments
 .venv/
+
+# Data and outputs
+*.mp4
+*.avi
+outputs/
+data/
+
+# Model weights
+*.pt
