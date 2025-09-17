@@ -35,15 +35,15 @@ class Detector:
                 conf = float(box.conf)
                 x1, y1, x2, y2 = map(int, box.xyxy[0])
 
-                # Allowed classes filter
+                                                                                        # Allowed classes filter
                 if self.allowed_classes and cls_name not in self.allowed_classes:
                     continue
 
-                # Prompt-based detection filter ( to be implemented in th future )
+                                                                                        # Prompt-based detection filter ( to be implemented in th future )
                 if self.prompt_filter and self.prompt_filter not in cls_name.lower():
                     continue
 
-                # Optional inpainting( using LaMa instead of telia )
+                                                                                        # Optional inpainting( using LaMa instead of telia )
                 if self.enable_inpainting:
                     roi = frame[y1:y2, x1:x2]
                     inpainted_roi = inpaint_utils.inpaint_object(
@@ -51,7 +51,7 @@ class Detector:
                     )
                     frame[y1:y2, x1:x2] = inpainted_roi
 
-                # Save detection in [x1, y1, x2, y2, conf, cls_name] format
+                                                                                       # Save detection in [x1, y1, x2, y2, conf, cls_name] format
                 detections.append([x1, y1, x2, y2, conf, cls_name])
 
         return detections

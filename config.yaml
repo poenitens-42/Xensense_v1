@@ -6,10 +6,16 @@ detector:
   allowed_classes: ["person", "car", "truck", "bus", "motorbike", "bicycle"]
 
   # NEW FEATURES
-  enable_inpainting: false        # true to enable inpainting
-  inpainting_method: "lama"      # "telea" (fast) or "lama" (better quality) still not working :(
+  enable_inpainting: true       # true to enable inpainting
+  inpainting_method: "lama"      # "telea" (fast) or "lama" (better quality)
 
   prompt_filter: null              # e.g., "car" or "red" (case-insensitive)
+
+# Pothole detection
+pothole_detector:
+  enabled: true
+  model: "models/best.pt"        # your trained pothole model
+  conf_thresh: 0.5              # confidence threshold for detection
 
 # Pose estimation
 pose:
@@ -27,10 +33,8 @@ tracker:
 speed:
   fps: 30
   pixel_to_meter: 0.05
-  max_speed: 30  # place holder for genaral speed as camera is not moving (very hard to estimate with out dynamic camera)
+  max_speed: 30  # placeholder for general speed as camera is not moving
 
 # Blackout recovery
 blackout:
   memory_size: 5   # number of frames to remember for recovery
-
-
