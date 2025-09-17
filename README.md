@@ -1,16 +1,28 @@
-XENSENSE-V1 (Paper implementation) 
+# XenSense 🚦 – Intelligent Video Analytics
 
-A video object segmentation and labelling model for autonomous vehicles
+XenSense is a real-time video analytics system for **traffic and hazard detection**, built with **YOLOv8, DeepSort, and custom ML models**.
 
-Hi This is my project xensensev1 
+## ✨ Features
+- 🚘 Multi-object detection & segmentation (YOLOv8)
+- 🎯 Real-time tracking (DeepSort)
+- 🌫️ Smoke & fog detection for low-visibility monitoring
+- ⚡ Speed, direction & distance estimation
+- 🛣️ Road hazard detection (potholes, speed bumps)
 
-I am currently using python 3.10.11 as most of the librairies used 
-for this tends to break/mis-match with other dependent librairies 
+## ⚡ Demo
+![Demo](results/demo.gif)
 
-So far we have covered object classification, 
+## 📊 Results
+- mAP@0.5: **0.54** (custom pothole dataset)
+- 30 FPS on 1080p streams (GPU-accelerated)
+- Robust detection under low-visibility conditions
 
+## 🛠 Tech Stack
+Python · PyTorch · YOLOv8 · OpenCV · DeepSort · CUDA/ROCm
 
--Future cases to implement 
-        -STM
-        -Partial occlusion 
-        -
+## 🚀 Quick Start
+```bash
+git clone https://github.com/poenitens-42/Xensense_v1.git
+cd Xensense_v1
+pip install -r requirements.txt
+python src/main.py --video sample.mp4
