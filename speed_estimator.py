@@ -47,4 +47,4 @@ class SpeedEstimator:
         # Convert to speed (m/s → km/h)
 
         speed_mps = total_dist_meters * self.fps
-        return speed_mps * 3.6
+        return speed_mps * 3.0

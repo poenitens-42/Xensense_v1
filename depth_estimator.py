@@ -22,10 +22,7 @@ class DepthEstimator:
         self.model = midas
 
     def estimate_depth(self, frame):
-        """
-        Input: BGR frame (numpy)
-        Output: Depth map normalized 0-1
-        """
+       
         img = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         input_tensor = self.transform(img).to(self.device)
 

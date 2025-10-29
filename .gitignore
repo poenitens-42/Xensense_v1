@@ -51,3 +51,26 @@ checkpoints/
 
 # Cache
 .cache/
+
+
+
+# Virtual environments
+.venv/
+.venv_phi4/
+venv/
+env/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+

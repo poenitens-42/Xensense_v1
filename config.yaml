@@ -14,7 +14,7 @@ detector:
 # Pothole detection
 pothole_detector:
   enabled: true
-  model: "models/best.pt"        # your trained pothole model
+  model: "models/best.pt"        # trained pothole model
   conf_thresh: 0.5              # confidence threshold for detection
 
 # Pose estimation
