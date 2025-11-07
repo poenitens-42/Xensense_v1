@@ -1,40 +1,106 @@
-# Detection settings
+# Fully optimized XenSense config.yaml (applies all performance patches)
+
+# ------------------------------------------------------------
+# Primary YOLO Detector
+# ------------------------------------------------------------
 detector:
-  model: "yolo11s.pt"
+  detect_every_n: 2            # detect every 2 frames
+
+  model: "yolo11n.pt"          # nano model for speed
   conf_thresh: 0.25
   iou_thresh: 0.45
   allowed_classes: ["person", "car", "truck", "bus", "motorbike", "bicycle"]
 
-  # NEW FEATURES
-  enable_inpainting: true       # true to enable inpainting
-  inpainting_method: "lama"      # "telea" (fast) or "lama" (better quality)
+  enable_inpainting: true       # Telea-only in main.py
+  inpainting_method: "hybrid"    # Telea = fast & stable
 
-  prompt_filter: null              # e.g., "car" or "red" (case-insensitive)
+  prompt_filter: null           # (NOT prompted detection)
 
-# Pothole detection
+# ------------------------------------------------------------
+# Pothole Detector
+# ------------------------------------------------------------
 pothole_detector:
   enabled: true
-  model: "models/best.pt"        # trained pothole model
-  conf_thresh: 0.5              # confidence threshold for detection
+  model: "models/best.pt"
+  conf_thresh: 0.50
+  detect_every_n: 5             # run pothole model every 5 frames
 
-# Pose estimation
+# ------------------------------------------------------------
+# Pose Estimation
+# ------------------------------------------------------------
 pose:
-  enabled: true
+  enabled: false               # disabled for FPS
   model: "yolo11n-pose.pt"
+  every_n: 3                   # pose frequency if enabled
 
-# Tracker settings
+# ------------------------------------------------------------
+# DeepSort Tracker
+# ------------------------------------------------------------
 tracker:
   max_age: 50
   n_init: 3
-  conf_thresh: 0.3
+  conf_thresh: 0.30
   iou_thresh: 0.45
 
-# Speed estimator settings
+# ------------------------------------------------------------
+# Speed Estimation
+# ------------------------------------------------------------
 speed:
   fps: 30
   pixel_to_meter: 0.05
-  max_speed: 30  # placeholder for general speed as camera is not moving
+  max_speed: 30
 
-# Blackout recovery
+# ------------------------------------------------------------
+# Blackout Recovery
+# ------------------------------------------------------------
 blackout:
-  memory_size: 5   # number of frames to remember for recovery
+  memory_size: 5
+
+# ------------------------------------------------------------
+# Depth Estimation
+# ------------------------------------------------------------
+depth:
+  model: "MiDaS_small"
+  use_gpu: true
+  resize: [384, 384]
+  skip: 1                   # more skip = more FPS
+
+# ------------------------------------------------------------
+# Prompted Detection (OWL-ViT)
+# ------------------------------------------------------------
+prompt_detection:
+  enabled: true               # you can toggle
+  model_name: "google/owlvit-base-patch32"
+  conf_thresh: 0.25
+  prompt: ""                  # leave empty unless needed
+  every_n: 5                  # run every 5 frames
+  allow_runtime_change: true
+
+# ------------------------------------------------------------
+# Input Video Resize for Speed
+# ------------------------------------------------------------
+input_size:
+  w: 512
+  h: 320
+
+# ------------------------------------------------------------
+# Maximum allowed depth distance
+# ------------------------------------------------------------
+max_depth_m: 50
+
+deHaze_default: false
+
+# Smoke model path (optional)
+smoke_model_path: null
+
+# Optional fixed video path (null = prompt user)
+video_path: null
+
+# ------------------------------------------------------------
+# Spatio-Temporal Reasoner
+# ------------------------------------------------------------
+reasoner:
+  max_history: 60
+  center_band: [0.25, 0.75]
+  log_dir: "st_memory"
+  ttc_warn_s: 2.5

@@ -1,356 +1,433 @@
+# ===========================================================
+# XenSense main.py — High-FPS Clean ADAS (No Flicker Edition)
+# - YOLO11n (general) every 2 frames, best.pt (potholes) every 3
+# - MiDaS_small depth every 6 frames (CPU)
+# - Medium retention (5 frames) to prevent alternating detections
+# - Clean HUD: class + speed + dist; TTC only if < 3s
+# - Lane-only + near-only + approaching + moving filters
+# - Smoke enhancement toggle 'd'
+# ===========================================================
+
+import time
+from collections import defaultdict, deque
+
 import cv2
 import yaml
 import torch
-from ultralytics import YOLO
-from detector import Detector
+import numpy as np
+import simpleaudio as sa
+from PIL import Image
+
+from detector import Detector                  # must return [x1,y1,x2,y2,conf,cls] at input scale
 from tracker.deep_sort import DeepSort
 from speed_estimator import SpeedEstimator
-from utils.inpainting import Inpainter
-from smoke_detector import SmokeDetector
 from depth_estimator import DepthEstimator
-import numpy as np
-import sys
-import simpleaudio as sa
-from transformers import AutoTokenizer, AutoModelForCausalLM, pipeline
+from smoke_removal import enhance_smoke_region  # your helper: enhance_smoke_region(frame, mask)
 
-sys.path.append("lama")
-
-SKELETON_CONNECTIONS = [
-    (5, 7), (7, 9),
-    (6, 8), (8, 10),
-    (5, 6),
-    (11, 12),
-    (5, 11), (6, 12),
-    (11, 13), (13, 15),
-    (12, 14), (14, 16)
-]
-
-
-# LLM Setup (CPU-friendly)
-
-from transformers import AutoTokenizer, AutoModelForCausalLM, pipeline
-
-from transformers import AutoTokenizer, AutoModelForCausalLM
-import torch
-
-MODEL_PATH = "rC:\Users\arjun\.cache\huggingface\hub\models--microsoft--phi-4-mini-instruct"
-
-print("[INFO] Loading LLM model...")
-
+# ---------------- Perf tweaks ----------------
 try:
-    tokenizer = AutoTokenizer.from_pretrained(MODEL_PATH, trust_remote_code=True)
+    cv2.setNumThreads(0)
+except Exception:
+    pass
+if torch.cuda.is_available():
+    torch.backends.cudnn.benchmark = True
 
-    llm_model = AutoModelForCausalLM.from_pretrained(
-        MODEL_PATH,
-        torch_dtype=torch.float16,   # or float32
-        device_map="auto",
-        trust_remote_code=True
-    )
-
-    print("[INFO] LLM model loaded successfully!")
-
-except Exception as e:
-    print(f"[ERROR] Failed to load LLM model: {e}")
-    llm_model = None  # prevent NameError later
-
-
-    llm_pipe = pipeline(
-        "text-generation",
-        model=llm_model,
-        tokenizer=tokenizer,
-        device=-1                  # -1 = CPU, change if you want GPU
-    )
-    print("[INFO] LLM model loaded successfully!")
-except Exception as e:
-    print(f"[ERROR] Failed to load LLM model: {e}")
-    llm_pipe = None
-
-
-# Config
-
+# ---------------- Config ----------------
 def load_config(path="config.yaml"):
     with open(path, "r") as f:
         return yaml.safe_load(f)
 
+# ---------------- Beep ----------------
+def play_beep(freq=900, ms=120):
+    fs = 44100
+    t = np.linspace(0, ms/1000, int(fs * ms / 1000), False)
+    audio = (np.sin(freq * 2 * np.pi * t) * 32767).astype(np.int16)
+    try:
+        sa.play_buffer(audio, 1, 2, fs)
+    except Exception:
+        pass
 
-# Utilities
-
-def create_object_mask(frame, x, y, w, h):
-    mask = np.zeros(frame.shape[:2], dtype=np.uint8)
-    mask[y:y+h, x:x+w] = 255
-    return mask
-
-def enhance_smoke_region(frame, mask):
-    lab = cv2.cvtColor(frame, cv2.COLOR_BGR2LAB)
-    l, a, b = cv2.split(lab)
-    clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8,8))
-    l = clahe.apply(l)
-    enhanced = cv2.merge((l, a, b))
-    enhanced = cv2.cvtColor(enhanced, cv2.COLOR_LAB2BGR)
-    mask_3c = cv2.merge([mask, mask, mask]).astype(np.float32)/255
-    output = frame*(1-mask_3c) + enhanced*mask_3c
-    return output.astype(np.uint8)
-
+# ---------------- Speed (wrapper) ----------------
 class SpeedEstimatorOptimized(SpeedEstimator):
     def __init__(self, fps=30, pixel_to_meter=0.05, mode="hybrid"):
         super().__init__(fps=fps, pixel_to_meter=pixel_to_meter, mode=mode)
         if not hasattr(self, "last_states"):
-            from collections import defaultdict
             self.last_states = defaultdict(lambda: None)
 
-    def is_moving(self, track_id, center, threshold=2):
-        last = self.last_states[track_id]
-        if last is None:
-            return True
-        (x1, y1), _, _ = last
-        (x2, y2) = center
-        dist_pixels = np.hypot(x2 - x1, y2 - y1)
-        return dist_pixels > threshold
+# ---------------- Reasoner (EMA-TTC) ----------------
+class SituationReasoner:
+    def __init__(self, fps=30, center_band=(0.43, 0.57), ttc_warn_s=1.6, max_history=60):
+        self.fps = fps
+        self.center_band = center_band
+        self.ttc_warn_s = ttc_warn_s
+        self.max_history = max_history
+        self.hist = defaultdict(lambda: deque(maxlen=max_history))
+        self.ttc_ema = {}
+        self.prev_dist = {}
 
-def check_hazard(track, approx_distance_m, frame_w, warning_dist=10, cls_name=None):
-    x, y, w, h = track.to_tlwh().astype(int)
-    cx = x + w // 2
-    center_region = (frame_w * 0.3, frame_w * 0.7)
+    def _ema_ttc(self, tid, x):
+        if x is None: return None
+        prev = self.ttc_ema.get(tid, x)
+        new = 0.7 * prev + 0.3 * x
+        self.ttc_ema[tid] = new
+        return new
 
-    if cls_name == "pothole" and approx_distance_m < 15:
-        return True, "HAZARD: Pothole Ahead"
+    def update(self, W, H, tracks):
+        events = []
+        cx_min = W * self.center_band[0]
+        cx_max = W * self.center_band[1]
 
-    if cls_name in ["car", "truck", "bus", "motorbike", "bicycle", "person"]:
-        if center_region[0] < cx < center_region[1] and approx_distance_m < warning_dist:
-            return True, "HAZARD! Slow Down"
+        for track, cls_name, speed, dist in tracks:
+            tid = track.track_id
+            x, y, w, h = track.to_tlwh().astype(int)
+            cx = x + w // 2
 
-    return False, ""
+            self.hist[tid].append({"speed": speed, "dist": dist, "t": time.time()})
 
-def play_beep(frequency=10000, duration_ms=200):
-    fs = 44100
-    t = np.linspace(0, duration_ms/1000, int(fs * duration_ms / 1000), False)
-    note = np.sin(frequency * t * 2 * np.pi)
-    audio = (note * 32767).astype(np.int16)
-    sa.play_buffer(audio, 1, 2, fs)
+            prevd = self.prev_dist.get(tid, None)
+            if dist is not None:
+                self.prev_dist[tid] = dist
 
-# ---------------------------
-# LLM Reasoning
-# ---------------------------
-def llm_reasoning(tracked_objects_json, memory_frames=None):
-    if llm_pipe is None:
-        return "LLM not available"
+            ttc = None
+            if (dist is not None) and (speed is not None) and (speed > 2) and (dist < 60):
+                v_ms = speed / 3.6
+                raw = dist / max(v_ms, 1e-6)
+                if 0 < raw < 8 and (prevd is None or dist < prevd + 0.5):
+                    ttc = raw
+            ttc = self._ema_ttc(tid, ttc)
 
-    try:
-        prompt = "You are XenSense AI. Analyze detected objects and previous frames for hazards or abnormal behavior.\n"
-        prompt += f"Current frame objects: {tracked_objects_json}\n"
-        if memory_frames:
-            prompt += f"Previous frames: {memory_frames}\n"
-        prompt += "Provide any hazards or warnings concisely."
+            if (ttc is not None) and (cx_min < cx < cx_max) and cls_name in ["car","truck","bus","person","motorbike","bicycle"]:
+                if ttc < self.ttc_warn_s:
+                    events.append(("imminent_collision", ttc, (x,y,w,h)))
 
-        output = llm_pipe(prompt, max_new_tokens=128, do_sample=False)
-        return output[0]['generated_text']
-    except Exception as e:
-        return f"LLM reasoning failed: {e}"
+        # return min TTC (if any) for global banner
+        min_ttc = None
+        if events:
+            vals = [e[1] for e in events if e[1] is not None]
+            if vals:
+                min_ttc = min(vals)
+        return events, min_ttc
 
+# ---------------- Draw label ----------------
+def draw_label(frame, x, y, text, color=(0,255,0), bg_alpha=0.65, padding=4):
+    (tw, th), _ = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 2)
+    x2 = x + tw + 2*padding
+    y2 = y - th - 2*padding
+    y2 = max(6, y2)
+    overlay = frame.copy()
+    cv2.rectangle(overlay, (x, y2), (x2, y), color, -1)
+    cv2.addWeighted(overlay, bg_alpha, frame, 1-bg_alpha, 0, frame)
+    cv2.putText(frame, text, (x+padding, y - padding - 1), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0,0,0), 2)
 
-# Main
-
+# ===========================================================
+# MAIN
+# ===========================================================
 def main():
     cfg = load_config()
-    video_path = input("Enter path to video file: ")
-    dehaze_enabled = input("Enable smoke enhancement? (y/n): ").lower() == 'y'
+    video_path = cfg.get("video_path") or input("Enter path to video file: ")
+
+    # Toggles
+    try:
+        dehaze_enabled = (input("Enable smoke enhancement? (y/n): ").strip().lower() == "y")
+    except Exception:
+        dehaze_enabled = False
+
+    # Schedules (performance)
+    DETECT_EVERY = 2          # general YOLO every 2 frames
+    POT_DETECT_EVERY = 3      # pothole YOLO every 3 frames (inside your Detector)
+    DEPTH_SKIP = 6            # MiDaS every 6 frames
+    RETAIN_FRAMES = 5         # medium retention (no flicker)
+
+    # Filters (clean HUD)
+    CENTER_BAND = tuple(cfg.get("reasoner", {}).get("center_band", [0.43, 0.57]))
+    MAX_DIST_KEEP = 40.0          # meters
+    MIN_MOVING_SPEED = 3.0         # km/h
+    SHOW_TTC_IF_LT = 3.0           # seconds
+
+    # Pothole pre-filters
+    pothole_min_area = 120
+    pothole_aspect_ratio_max = 1.2  # h <= 1.2 * w
 
     cap = cv2.VideoCapture(video_path)
     if not cap.isOpened():
-        print(f"[ERROR] Cannot open video: {video_path}")
+        print("[ERROR] Cannot open video:", video_path)
         return
 
-    orig_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-    orig_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    H = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    W = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
 
-    detector = Detector(cfg["detector"]["model"], cfg["detector"]["conf_thresh"])
-    detector.allowed_classes = cfg["detector"]["allowed_classes"]
+   
+    # -------- Unified Detector (compatible with your Detector class) --------
+    det_cfg = cfg.get("detector", {})
+    pothole_cfg = cfg.get("pothole_detector", {})
 
-    pothole_model = None
-    if cfg.get("pothole_detector", {}).get("enabled", False):
-        pothole_model = YOLO(cfg["pothole_detector"]["model"])
-        pothole_conf_thresh = cfg["pothole_detector"].get("conf_thresh", 0.25)
+    # general detection model (YOLO11n)
+    general_model_path = det_cfg.get("general_model", det_cfg.get("model", "yolo11n.pt"))
+    general_conf = float(det_cfg.get("conf_thresh", 0.45))
 
-    pose_model = YOLO(cfg["pose"]["model"]) if cfg["pose"]["enabled"] else None
-
-    tracker = DeepSort(
-        max_age=cfg["tracker"]["max_age"],
-        n_init=cfg["tracker"]["n_init"],
-        conf_thresh=cfg["tracker"]["conf_thresh"]
+    # ✅ IMPORTANT: your Detector constructor accepts only 2 positional args
+    detector = Detector(
+        general_model_path,
+        general_conf
     )
 
-    speed_estimator = SpeedEstimatorOptimized(
+    # restrict classes if config specifies
+    allowed = det_cfg.get("allowed_classes", [])
+    detector.allowed_classes = set(allowed) if allowed else None
+
+    # pothole detector
+    from ultralytics import YOLO
+    pothole_model_path = pothole_cfg.get("model", "models/best.pt")
+    pothole_conf = float(pothole_cfg.get("conf_thresh", 0.3))
+
+    pothole_model = YOLO(pothole_model_path)
+    if torch.cuda.is_available():
+        pothole_model.to("cuda")
+
+
+
+    # -------- Tracking & speed --------
+    tracker = DeepSort(
+        max_age     = cfg["tracker"]["max_age"],   # also retains tracks internally
+        n_init      = cfg["tracker"]["n_init"],
+        conf_thresh = cfg["tracker"]["conf_thresh"]
+    )
+    speed_est = SpeedEstimatorOptimized(
         fps=cfg["speed"]["fps"],
         pixel_to_meter=cfg["speed"]["pixel_to_meter"]
     )
 
-    inpainter = Inpainter(mode=cfg.get("inpainting", {}).get("mode", "hybrid"))
-    smoke_detector = SmokeDetector(model_path=cfg.get("smoke_model_path", None), use_yolo=True)
+    # -------- Reasoner --------
+    reasoner = SituationReasoner(
+        fps=cfg["speed"]["fps"],
+        center_band=CENTER_BAND,
+        ttc_warn_s=float(cfg.get("reasoner", {}).get("ttc_warn_s", 1.6)),
+        max_history=int(cfg.get("reasoner", {}).get("max_history", 60))
+    )
 
-    depth_estimator = DepthEstimator(model_type="MiDaS_small", device="cpu")
-    depth_resize = (256, 144)
-    depth_skip = 10
-
-    model_h, model_w = 384, 640
-    frame_count = 0
+    # -------- Depth (CPU, MiDaS_small) --------
+    depth_est = DepthEstimator(model_type="MiDaS_small", device="cpu")
+    depth_resize = tuple(cfg.get("depth", {}).get("resize", [384,384]))
     depth_map = None
+    depth_min = depth_max = None
 
-    print("[INFO] Starting video processing...")
+    # Model input size for detectors
+    model_w = int(cfg.get("input_size", {}).get("w", 640))
+    model_h = int(cfg.get("input_size", {}).get("h", 384))
+
+    # Detection cache to avoid recompute & to stabilize tracker
+    last_dets_resized = []  # cached detections at resized scale
+    frame_i = 0
+    last_time = time.time()
+    fps_smooth = 0.0
+
+    # Visual retention (extra on top of DeepSort): keep last drawn tracks for a few frames
+    retained = {}  # tid -> {"bbox":(x,y,w,h),"cls":str,"age":int,"speed":float,"dist":float,"ttc":float}
+
+    print("[INFO] Running XenSense — High-FPS, No-Flicker")
+    print(f"[INFO] dehaze_enabled={dehaze_enabled}")
+
     while True:
-        ret, frame = cap.read()
-        if not ret:
+        ok, frame = cap.read()
+        if not ok:
             print("[INFO] End of video.")
             break
-        frame_count += 1
-        orig_frame = frame.copy()
-        resized_frame = cv2.resize(frame, (model_w, model_h))
-        scale_x = orig_w / model_w
-        scale_y = orig_h / model_h
 
-        # Detection
-       
-        detections_raw = detector.detect(resized_frame)
+        now = time.time()
+        inst_fps = 1.0 / max(now - last_time, 1e-6)
+        fps_smooth = 0.9 * fps_smooth + 0.1 * inst_fps if fps_smooth else inst_fps
+        last_time = now
+
+        frame_i += 1
+        vis = frame.copy()
+
+        # Resize for detector
+        resized = cv2.resize(frame, (model_w, model_h), interpolation=cv2.INTER_LINEAR)
+        scale_x, scale_y = W / model_w, H / model_h
+
+        # ---- Run detectors on schedule; reuse cache otherwise ----
+        run_detector_this_frame = (frame_i % DETECT_EVERY == 0)
+        if run_detector_this_frame:
+            try:
+                raw = detector.detect(resized)  # list of [x1,y1,x2,y2,conf,cls] in resized coords
+            except Exception as e:
+                print("[ERROR] detector.detect failed:", e)
+                raw = last_dets_resized  # fall back to cache
+            last_dets_resized = raw
+        else:
+            raw = last_dets_resized  # reuse previous detections
+
+        # ---- Scale to original & pothole pre-filters ----
         detections = []
-        for det in detections_raw:
-            x1, y1, x2, y2, conf, cls_name = det
-            x1, y1 = int(x1 * scale_x), int(y1 * scale_y)
-            x2, y2 = int(x2 * scale_x), int(y2 * scale_y)
-            detections.append([x1, y1, x2, y2, conf, cls_name])
+        for x1,y1,x2,y2,conf,cls in raw:
+            X1 = int(x1 * scale_x); Y1 = int(y1 * scale_y)
+            X2 = int(x2 * scale_x); Y2 = int(y2 * scale_y)
+            w = X2 - X1; h = Y2 - Y1
+            if str(cls).lower() == "pothole":
+                area = w * h
+                if area < pothole_min_area:
+                    continue
+                if h > (w * pothole_aspect_ratio_max):
+                    continue
+                if Y2 < int(H * 0.55):  # must be lower-half
+                    continue
+            detections.append([X1, Y1, X2, Y2, float(conf), cls])
 
-        # Pothole detection
-        if pothole_model:
-            pothole_results = pothole_model(resized_frame)
-            for r in pothole_results:
-                boxes = r.boxes.xyxy.cpu().numpy()
-                scores = r.boxes.conf.cpu().numpy()
-                for box, score in zip(boxes, scores):
-                    if score >= pothole_conf_thresh:
-                        x1, y1, x2, y2 = map(int, box)
-                        x1, y1, x2, y2 = int(x1*scale_x), int(y1*scale_y), int(x2*scale_x), int(y2*scale_y)
-                        detections.append([x1, y1, x2, y2, score, "pothole"])
+        # ---- Track ----
+        tracks = tracker.update_tracks(detections, vis)
 
-        # Smoke detection
-        smoke_dets = smoke_detector.detect(resized_frame)
-        smoke_mask_frame = np.zeros(orig_frame.shape[:2], dtype=np.uint8)
-        for det in smoke_dets:
-            sx1, sy1, sx2, sy2 = map(int, [det["x1"]*scale_x, det["y1"]*scale_y, det["x2"]*scale_x, det["y2"]*scale_y])
-            smoke_mask_frame[sy1:sy2, sx1:sx2] = 255
+        # ---- Depth update (less frequent) ----
+        if frame_i % DEPTH_SKIP == 0:
+            try:
+                small = cv2.resize(frame, depth_resize, interpolation=cv2.INTER_AREA)
+                dsmall = depth_est.estimate_depth(small)
+                if dsmall is not None and dsmall.size > 0 and not np.isnan(dsmall).any():
+                    depth_map = cv2.resize(dsmall.astype(np.float32), (W, H), interpolation=cv2.INTER_LINEAR)
+                    depth_min = float(np.min(depth_map))
+                    depth_max = float(np.max(depth_map))
+                    if (depth_max - depth_min) < 1e-6:
+                        depth_map = None
+                # else keep previous depth
+            except Exception:
+                pass
 
+        # ---- Prepare filters ----
+        cx_min_pix = int(W * CENTER_BAND[0])
+        cx_max_pix = int(W * CENTER_BAND[1])
 
-        # Tracking
+        # ---- For reasoner feed + drawing ----
+        tracks_for_reasoner = []
+        active_ids_this_frame = set()
 
-        tracks = tracker.update_tracks(detections, orig_frame)
-        tracked_objects_json = []
-
-        for track in tracks:
-            if not track.is_confirmed():
+        for tr in tracks:
+            if not tr.is_confirmed():
                 continue
-
-            x, y, w, h = track.to_tlwh().astype(int)
-            track_id = track.track_id
-            cls_name = track.cls
+            x, y, w, h = tr.to_tlwh().astype(int)
             cx, cy = x + w//2, y + h//2
+            cls_name = getattr(tr, "cls", "object")
 
-            if not speed_estimator.is_moving(track_id, (cx, cy)):
-                continue
+            # Depth → meters (conservative linear)
+            approx_m = None
+            if depth_map is not None and (depth_max is not None and depth_min is not None) and (depth_max - depth_min > 1e-6):
+                cyc = int(np.clip(cy, 0, H-1))
+                cxc = int(np.clip(cx, 0, W-1))
+                rawd = float(depth_map[cyc, cxc])
+                norm = np.clip((rawd - depth_min) / (depth_max - depth_min), 0.0, 1.0)
+                approx_m = 2.0 + 30.0 * norm
+                if approx_m > 80:  # junk
+                    approx_m = None
 
-            speed = speed_estimator.estimate_speed(track_id, (cx, cy), h, cls_name)
+            # Speed (km/h)
+            speed = speed_est.estimate_speed(tr.track_id, (cx, cy), h, cls_name)
 
-            # Depth approximation
-            if depth_map is not None:
-                cy_clamped = np.clip(cy, 0, depth_map.shape[0]-1)
-                cx_clamped = np.clip(cx, 0, depth_map.shape[1]-1)
-                dist_norm = depth_map[cy_clamped, cx_clamped]
-                approx_distance_m = (1 - dist_norm) * cfg.get("max_depth_m", 50)
-            else:
-                approx_distance_m = 0.0
+            # Approaching?
+            prevd = reasoner.prev_dist.get(tr.track_id, None)
+            approaching = True
+            if (approx_m is not None) and (prevd is not None) and (approx_m >= prevd + 0.5):
+                approaching = False
 
-            # Hazard check
-            hazard, warning_msg = check_hazard(track, approx_distance_m, orig_w, warning_dist=10, cls_name=cls_name)
-            if hazard:
-                cv2.putText(orig_frame, warning_msg, (x, y-30),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0,0,255), 3)
-                cv2.rectangle(orig_frame, (x, y), (x+w, y+h), (0,0,255), 3)
-                play_beep(frequency=1000 if cls_name != "pothole" else 600)
-            else:
-                color = (0,255,0) if cls_name != "pothole" else (0,0,255)
-                label = f"ID:{track_id} {cls_name} {speed:.1f} km/h {approx_distance_m:.1f} m" \
-                        if cls_name != "person" else f"{cls_name} {approx_distance_m:.1f} m"
-                cv2.rectangle(orig_frame, (x,y), (x+w,y+h), color, 2)
-                cv2.putText(orig_frame, label, (x,y-10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
+            # Keep only lane, near, moving, approaching
+            keep = True
+            if approx_m is None or approx_m > MAX_DIST_KEEP: keep = False
+            if speed is None or speed < MIN_MOVING_SPEED:     keep = False
+            if not (cx_min_pix < cx < cx_max_pix):            keep = False
+            if not approaching:                                keep = False
 
-            smoke_flag = np.any(smoke_mask_frame[y:y+h, x:x+w])
+            # Compute TTC (for label, not mandatory)
+            ttc = None
+            if keep and (speed is not None) and (speed > 2):
+                v_ms = speed / 3.6
+                raw_ttc = approx_m / max(v_ms, 1e-6)
+                if 0 < raw_ttc < 8:
+                    ttc = raw_ttc
 
-            tracked_objects_json.append({
-                "id": track_id,
-                "class": cls_name,
-                "bbox": [x, y, x+w, y+h],
+            # Retention bookkeeping (we keep even if later filtered out visually)
+            active_ids_this_frame.add(tr.track_id)
+            retained[tr.track_id] = {
+                "bbox": (x, y, w, h),
+                "cls": cls_name,
+                "age": 0,  # reset age when seen
                 "speed": speed,
-                "smoke": smoke_flag
-            })
+                "dist": approx_m,
+                "ttc": ttc
+            }
 
-        # 
-        # Frame memory
-        #
-        # frame_memory.append(tracked_objects_json)
-        # if len(frame_memory) > FRAME_MEMORY_SIZE:
-        #     frame_memory.pop(0)
+            # Add to reasoner regardless (to maintain TTC smoothing/history)
+            tracks_for_reasoner.append((tr, cls_name, speed, approx_m))
 
-        # #
-        # # LLM Reasoning
-        # #
-        # reasoning_output = llm_reasoning(tracked_objects_json, frame_memory[:-1])
-        # print(f"[Frame {frame_count}] LLM: {reasoning_output}")
+        # ---- Age & draw retained tracks (prevents flicker) ----
+        to_delete = []
+        for tid, info in retained.items():
+            if tid not in active_ids_this_frame:
+                info["age"] += 1
+                # give it a chance up to RETAIN_FRAMES
+                if info["age"] > RETAIN_FRAMES:
+                    to_delete.append(tid)
 
-        #
-        # Smoke enhancement toggle
-        #
-        key = cv2.waitKey(1) & 0xFF
-        if key == ord('d'):
+            x, y, w, h = info["bbox"]
+            cls_name = info["cls"]
+            speed = info["speed"]
+            dist = info["dist"]
+            ttc = info["ttc"]
+
+            # Apply the same visual filters at draw-time to keep HUD clean
+            cx = x + w//2
+            if dist is None or dist > MAX_DIST_KEEP: continue
+            if speed is None or speed < MIN_MOVING_SPEED: continue
+            if not (cx_min_pix < cx < cx_max_pix): continue
+
+            color = (0, 200, 0) if cls_name != "pothole" else (0, 0, 200)
+            label_parts = [str(cls_name)]
+            if speed is not None: label_parts.append(f"{speed:.0f}km/h")
+            if dist is not None:  label_parts.append(f"{dist:.1f}m")
+            draw_label(vis, x, y, " ".join(label_parts), color=color)
+
+            if (ttc is not None) and (ttc < SHOW_TTC_IF_LT):
+                draw_label(vis, x, y + 30, f"TTC {ttc:.1f}s", color=(0,0,230) if ttc >= 1.0 else (0,0,255))
+
+        for tid in to_delete:
+            retained.pop(tid, None)
+
+        # ---- Reasoner & global banner ----
+        events, min_ttc = reasoner.update(W, H, tracks_for_reasoner)
+        if (min_ttc is not None) and (min_ttc < reasoner.ttc_warn_s):
+            text = f"IMMINENT COLLISION — TTC {min_ttc:.1f}s"
+            (tw, th), _ = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, 1.2, 4)
+            bx = max(10, (W - tw) // 2)
+            by = 50
+            overlay = vis.copy()
+            cv2.rectangle(overlay, (bx-10, by-th-12), (bx+tw+10, by+10), (0,0,200), -1)
+            cv2.addWeighted(overlay, 0.85, vis, 0.15, 0, vis)
+            cv2.putText(vis, text, (bx, by), cv2.FONT_HERSHEY_SIMPLEX, 1.2, (255,255,255), 4)
+            play_beep(950, 120)
+
+        # ---- Smoke enhancement (toggle) ----
+        if dehaze_enabled:
+            try:
+                vis = enhance_smoke_region(vis, np.ones((H, W), dtype=np.uint8) * 255)
+            except Exception:
+                pass
+
+        # ---- FPS HUD ----
+        cv2.putText(vis, f"FPS: {fps_smooth:.1f}", (20, H-30), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0,255,0), 2)
+
+        # ---- Show ----
+        cv2.imshow("XenSense — High-FPS Clean ADAS", vis)
+        k = cv2.waitKey(1) & 0xFF
+        if k == ord('d'):
             dehaze_enabled = not dehaze_enabled
-        if dehaze_enabled and np.any(smoke_mask_frame):
-            orig_frame = enhance_smoke_region(orig_frame, smoke_mask_frame)
-
-        #
-        # Pose skeleton
-        # 
-        if pose_model:
-            pose_results = pose_model(orig_frame)
-            for r in pose_results:
-                if r.keypoints is not None:
-                    kpts = r.keypoints.xy.cpu().numpy()
-                    for person in kpts:
-                        for (px, py) in person:
-                            cv2.circle(orig_frame, (int(px), int(py)), 2, (0,0,255), -1)
-                        for i,j in SKELETON_CONNECTIONS:
-                            if i < len(person) and j < len(person):
-                                x1, y1 = map(int, person[i])
-                                x2, y2 = map(int, person[j])
-                                cv2.line(orig_frame, (x1,y1), (x2,y2), (255,0,0), 2)
-
-        # 
-        # Show frame
-        #
-        cv2.imshow("XenSensev2", orig_frame)
-        if key == ord("q"):
+            print("[INFO] Smoke enhancement:", dehaze_enabled)
+        if k == ord('q'):
             break
-
-        # ---------------------------
-        # Depth map update
-        # ---------------------------
-        if frame_count % depth_skip == 0:
-            small_frame = cv2.resize(orig_frame, depth_resize)
-            depth_map_small = depth_estimator.estimate_depth(small_frame)
-            depth_map = cv2.resize(depth_map_small, (orig_w, orig_h))
 
     cap.release()
     cv2.destroyAllWindows()
 
+
 if __name__ == "__main__":
-    import traceback
-    print("[INFO] Script started successfully!")
     try:
         main()
-    except Exception as e:
-        print("[ERROR] Exception in main:")
+    except Exception:
+        import traceback
+        print("[ERROR] Unhandled exception in main():")
         traceback.print_exc()
