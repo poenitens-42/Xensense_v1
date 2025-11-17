@@ -1,0 +1,53 @@
+detector:
+  general_model: "yolo11n.pt"
+  pothole_model: "models/best.pt"
+  enable_pothole: true
+
+  # ---- CONFIDENCE ----
+  # YOLO11n needs lower thresholds for stable detection
+  conf_thresh: 0.25            # General YOLO detection
+  pothole_conf: 0.45           # Custom model confidence tolerance
+
+  # ---- FRAME SKIPPING ----
+  detect_every_n: 1            # DO NOT SKIP (avoids flicker)
+
+  # ---- CLASS FILTER (Correct YOLO class names) ----
+  allowed_classes:
+    - car
+    - truck
+    - bus
+    - person
+    - bicycle
+    - motorcycle
+    - pothole
+
+  # ---- EXTRA DETECTOR TUNING ----
+  pothole_iou: 0.45            # NMS for pothole deduplication
+  min_pothole_size: 20         # allow potholes as small as 20px
+  max_potholes: 5              # limit clutter
+
+tracker:
+  max_age: 10                  # Increased for smoother tracking
+  n_init: 2
+  conf_thresh: 0.30            # Allow DeepSORT to track lower-confidence objects
+
+speed:
+  fps: 60                      # Use your actual pipeline FPS
+  pixel_to_meter: 0.05
+
+reasoner:
+  center_band: [0.40, 0.60]
+  ttc_warn_s: 1.4              # Slightly more responsive
+  max_history: 120
+
+depth:
+  resize: [384, 384]
+
+input_size:
+  w: 640
+  h: 384
+
+video_path: null
+
+hud:
+  top_k: 3

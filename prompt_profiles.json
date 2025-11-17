@@ -1,0 +1,6 @@
+{
+    "default": [],
+    "wildlife": ["deer", "cow", "animal"],
+    "city": ["person", "car", "bicycle"],
+    "highway": ["truck", "bus", "car"]
+}

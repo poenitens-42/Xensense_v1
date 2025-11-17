@@ -1,0 +1,76 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.so
+
+# Virtual environments
+.venv/
+env/
+venv/
+ENV/
+
+# Jupyter Notebook checkpoints
+.ipynb_checkpoints/
+
+# Logs
+*.log
+
+# IDE / Editor
+.vscode/
+.idea/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# ML / DL large files
+*.h5
+*.ckpt
+*.pth
+*.pt
+*.tflite
+*.onnx
+*.pb
+*.npz
+*.tar
+*.gz
+*.zip
+
+# Data
+data/
+datasets/
+*.csv
+*.tsv
+*.jsonl
+
+# Models
+models/
+outputs/
+checkpoints/
+
+# Cache
+.cache/
+
+
+
+# Virtual environments
+.venv/
+.venv_phi4/
+venv/
+env/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+

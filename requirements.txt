@@ -1,0 +1,36 @@
+# Core dependencies for xensensev1 (will be updated in the future from my github repo if needed)
+ultralytics>=8.2.0
+opencv-python>=4.8.0
+opencv-contrib-python>=4.8.0
+numpy>=1.26.0
+PyYAML>=6.0.1
+scipy>=1.11.3
+torch>=2.0.0
+torchvision>=0.15.0
+filterpy>=1.4.5
+lapx>=0.5.5
+
+# Tracking
+deep_sort_realtime>=1.3.1
+
+# Optional: progress bars and utilities
+tqdm>=4.66.0
+Pillow>=9.5.0
+
+omegaconf>=2.3.0
+
+# Depth estimation & audio
+timm>=0.6.7
+simpleaudio>=1.0.4
+
+
+# MANUAL INSTALLS REQUIRED BELOW
+# These models are not included in the requirements.txt and need to be set up manually
+
+# 1) LaMa inpainting model
+# git clone https://github.com/advimman/lama.git
+# Then follow LaMa's README for setup
+
+# 2) STM (Space-Time Memory Network)
+# git clone https://github.com/seoungwugoh/STM.git (to be implemented in the future) 
+# Then follow STM's README for setup
