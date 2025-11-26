@@ -5,22 +5,28 @@ It integrates **state-of-the-art deep learning models** into a modular, efficien
 
 ---
 
-##  Key Features
+## Key Features
 
--  **Multi-object detection and segmentation** using **YOLOv8**
--  **DeepSort tracking** with stable ID assignment and re-identification
--  **Speed, distance, and direction estimation** using **MiDaS depth inference**
+- **Multi-object detection and segmentation** using **YOLOv11n**
+- **DeepSort tracking** with stable ID assignment and re-identification
+- **Speed, distance, and direction estimation** using **MiDaS depth inference**
   - Pixel-to-meter scaling via class-based height approximation
   - Rolling history smoothing for stable outputs
--  **Custom smoke and fog detection module** for low-visibility handling
--  **Road hazard detection** with a **semi-functional pothole and speed-bump model**
--  **Prompt-based detection** via **OwlViT**
--  **Interactive helper menu**
+- **Custom smoke and fog detection module** for low-visibility handling
+- **Road hazard detection** with a **semi-functional pothole and speed-bump model**
+- **Prompt-based detection** via **OwlViT**
+- **Interactive helper menu**
   - Pause/resume
   - Enable/disable modules
   - Debug and visualization toggles
 
 ---
+
+## ⚡ Demo
+
+*(Demo coming soon — XenSense performing detection, tracking, depth-based speed estimation, and hazard recognition)*
+
+
 
 ## ⚡ Demo
 
@@ -37,6 +43,9 @@ You may place your GIF here:
 
 ---
 
+
+---
+
 ## 📊 Results
 
 - **Throughput:** ~30 FPS on 1080p video (GPU-accelerated)
@@ -49,7 +58,7 @@ You may place your GIF here:
 
 - **Python** – Core language  
 - **PyTorch** – Deep learning framework  
-- **YOLOv8 (Ultralytics)** – Detection and segmentation  
+- **YOLOv11n (Ultralytics)** – Detection and segmentation  
 - **DeepSort** – Multi-object tracking  
 - **MiDaS** – Depth estimation  
 - **OwlViT** – Prompt-based recognition  
@@ -69,11 +78,8 @@ cd Xensense_v1
 # Install dependencies
 pip install -r requirements.txt
 
-# Run inference
-python main.py
-
-# Create a "data" subfolder to store input data
-data/"video name".mp4
+# Create data folder to store inputs(video/cam) 
+mkdir -p data
 
 
 
