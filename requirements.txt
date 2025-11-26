@@ -23,14 +23,4 @@ omegaconf>=2.3.0
 timm>=0.6.7
 simpleaudio>=1.0.4
 
-
-# MANUAL INSTALLS REQUIRED BELOW
-# These models are not included in the requirements.txt and need to be set up manually
-
-# 1) LaMa inpainting model
-# git clone https://github.com/advimman/lama.git
-# Then follow LaMa's README for setup
-
-# 2) STM (Space-Time Memory Network)
-# git clone https://github.com/seoungwugoh/STM.git (to be implemented in the future) 
-# Then follow STM's README for setup
+#STM hybrid model already in the project file which is linked to a basic LSTM model in the main.py
