@@ -1,45 +1,66 @@
-# XenSense 🚦 – Intelligent Video Analytics
+# XenSense 🚦 – Intelligent Video Analytics for Road Safety
 
-**XenSense** is a real-time video analytics system for **traffic monitoring and hazard detection for autonomous cars**, combining **state-of-the-art deep learning models** with efficient video processing pipelines.
+**XenSense** is a real-time video analytics system for **traffic monitoring, depth-aware motion analysis, and road-hazard detection**, designed for autonomous-driving and smart-city applications.  
+It integrates **state-of-the-art deep learning models** into a modular, efficient processing pipeline.
 
 ---
 
-## ✨ Key Features
-- 🚘 **Multi-object detection & segmentation** using **YOLO11**
-- 🎯 **Robust tracking** with **DeepSort**  
-- 🌫️ **Custom smoke & fog filter** for low-visibility environments  
-- ⚡ **Speed, direction, and distance estimation** powered by **MiDaS depth estimation**  
-- 🛣️ **Road hazard detection** for **potholes and speed bumps**
+##  Key Features
+
+-  **Multi-object detection and segmentation** using **YOLOv8**
+-  **DeepSort tracking** with stable ID assignment and re-identification
+-  **Speed, distance, and direction estimation** using **MiDaS depth inference**
+  - Pixel-to-meter scaling via class-based height approximation
+  - Rolling history smoothing for stable outputs
+-  **Custom smoke and fog detection module** for low-visibility handling
+-  **Road hazard detection** with a **semi-functional pothole and speed-bump model**
+-  **Prompt-based detection** via **OwlViT**
+-  **Interactive helper menu**
+  - Pause/resume
+  - Enable/disable modules
+  - Debug and visualization toggles
 
 ---
 
 ## ⚡ Demo
-![Demo](results/demo.gif)  
-*(Sample run of XenSense in action — real-time detection, tracking, and hazard identification)*
+
+*(Demo coming soon — sample run of XenSense performing detection, tracking, depth-based speed estimation, and hazard recognition)*  
+You may place your GIF here:
+
+
+
+
+
+
+
+
 
 ---
 
 ## 📊 Results
-- **mAP@0.5:** `0.54` on custom pothole dataset  
-- **Throughput:** ~30 FPS on 1080p video (GPU-accelerated)  
-- **Robustness:** Handles smoke/fog and other low-visibility scenarios  
+
+- **Throughput:** ~30 FPS on 1080p video (GPU-accelerated)
+- **Robustness:** Stable performance under smoke and fog
+- **Motion Estimation:** Smooth and physically consistent using depth + temporal tracking
 
 ---
 
 ## 🛠 Tech Stack
+
 - **Python** – Core language  
 - **PyTorch** – Deep learning framework  
-- **YOLO11 (Ultralytics)** – Object detection & segmentation  
+- **YOLOv8 (Ultralytics)** – Detection and segmentation  
 - **DeepSort** – Multi-object tracking  
-- **MiDaS** – Depth estimation (for speed & distance)  
-- **OpenCV** – Video processing & visualization  
-- **Custom Smoke/FogNet Filter** – Adverse weather handling  
+- **MiDaS** – Depth estimation  
+- **OwlViT** – Prompt-based recognition  
+- **OpenCV** – Video processing and visualization  
 - **CUDA / ROCm** – GPU acceleration  
-- **NumPy, Pandas** – Data handling and metrics  
+- **NumPy, Pandas** – Metrics and data handling  
 
 ---
 
 ## 🚀 Quick Start
+
 ```bash
 # Clone repository
 git clone https://github.com/poenitens-42/Xensense_v1.git
@@ -48,5 +69,11 @@ cd Xensense_v1
 # Install dependencies
 pip install -r requirements.txt
 
-# Run inference on sample video
-python src/main.py --video sample.mp4
+# Run inference
+python main.py
+
+# Create a "data" subfolder to store input data
+data/"video name".mp4
+
+
+
