@@ -213,8 +213,3 @@ Please read this before relying on any output.
 ## Tech stack
 
 Python, PyTorch, Ultralytics YOLO11, DeepSort, MiDaS, Hugging Face Transformers (OwlViT), OpenCV, NumPy, SciPy.
-
-## Authors
-
-Arjun Prabhakaran, Ayman Amjad, Bhanoday Kurma, Bhanu Prakash M
-Guide: Mayanka Gupta, Assistant Professor, Dept. of CSE, BMS College of Engineering
