@@ -200,16 +200,6 @@ Please read this before relying on any output.
 - The `p` hotkey re-reads the config value instead of toggling.
 - If video enhancement is on, the last frame of a video can be `None` and may crash the loop at end of video.
 
-### Roadmap
-
-- Train the LSTM risk head on logged telemetry and load its weights
-- Graceful fallback when the pothole model is missing
-- Read FPS from the video automatically
-- Camera calibration for metric distance
-- Quantitative evaluation on KITTI / BDD100K
-
----
-
 ## Tech stack
 
 Python, PyTorch, Ultralytics YOLO11, DeepSort, MiDaS, Hugging Face Transformers (OwlViT), OpenCV, NumPy, SciPy.
