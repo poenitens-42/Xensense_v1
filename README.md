@@ -1,6 +1,6 @@
 # XenSense-V1
 
-A real-time road-scene perception pipeline that runs on a single camera. It combines object detection, multi-object tracking, monocular depth, zero-shot prompt detection and collision-risk estimation, and shows the results on a live HUD with per-frame CSV telemetry.
+A real-time road-scene perception pipeline that runs on a single camera. It combines object detection, multi-object tracking, monocular depth, zero-shot prompt detection and collision-risk estimation, and shows the results on a live HUD with per-frame CSV telemetry.(No LiDAR or radar: all spatial reasoning comes from one camera, aiming for sensor-fusion-level awareness at a fraction of the hardware cost)
 
 <p align="center">
   <img src="assets/hud_highway.jpg" width="850" alt="XenSense HUD on highway footage: tracked vehicles with distance and speed labels, ML collision panel">
